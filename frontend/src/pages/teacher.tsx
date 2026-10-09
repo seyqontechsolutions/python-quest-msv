@@ -3,6 +3,7 @@ import { getGetTeacherDashboardQueryKey, useGetTeacherDashboard } from '../api-c
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link } from 'wouter';
+import { apiUrl } from '../lib/api-url';
 
 function timeSince(value?: string) {
   if (!value) return '—';
@@ -63,7 +64,7 @@ export default function Teacher() {
     setStudentDataError('');
     const loadStudentData = async () => {
       try {
-        const response = await fetch(`/api/teacher/students/grade/${selectedGrade}`, { headers: { 'x-teacher-pin': submittedPin } });
+        const response = await fetch(apiUrl(`/api/teacher/students/grade/${selectedGrade}`), { headers: { 'x-teacher-pin': submittedPin } });
         const result = await response.json();
         if (!response.ok) throw new Error(result.error ?? 'Could not load student data.');
         if (current) {
@@ -98,7 +99,7 @@ export default function Teacher() {
     setSavingStudent(true);
     setEditError('');
     try {
-      const response = await fetch(`/api/teacher/students/${studentId}`, {
+      const response = await fetch(apiUrl(`/api/teacher/students/${studentId}`), {
         method: 'PATCH',
         headers: { 'content-type': 'application/json', 'x-teacher-pin': submittedPin },
         body: JSON.stringify({ name: editName, newPassword }),

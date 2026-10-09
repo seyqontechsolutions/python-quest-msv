@@ -31,6 +31,8 @@ npm run dev
 
 Open the URL printed by Vite (it will use the next port if 5174 is busy). The API runs on http://localhost:5000.
 
+The frontend reads `VITE_API_BASE_URL` from `frontend/.env`. It is set to `http://localhost:5000` for local development. To connect a deployed frontend to a remote backend, set it to the backend's full URL (for example, `https://api.example.com`) and restart/rebuild the frontend. `frontend/.env.example` documents the setting; keep deployment-specific values in the ignored `.env` file.
+
 ## Structure
 
 - `frontend/` — React + Vite student quest interface

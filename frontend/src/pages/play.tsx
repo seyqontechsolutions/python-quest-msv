@@ -4,6 +4,7 @@ import { ArrowLeft, ArrowRight, BookOpen, Check, ChevronRight, CircleAlert, Code
 import { getGetStudentQueryKey, useGetGameLevels, useGetStudent, useRecordStudentAttempt, useSaveStudentProgress, useSubmitChallenge } from '../api-client-react';
 import type { RunCodeResult } from '../api-client-react';
 import { Link, useLocation } from 'wouter';
+import { apiUrl } from '../lib/api-url';
 
 const LESSONS: Record<number, { title: string; body: string; example: string; exampleoutput: string }> = {
   1: {
@@ -126,7 +127,7 @@ export default function Play() {
     queryKey: ['/api/leaderboard', student?.grade],
     enabled: Boolean(student?.grade),
     queryFn: async () => {
-      const response = await fetch(`/api/leaderboard?grade=${encodeURIComponent(student!.grade)}`);
+      const response = await fetch(apiUrl(`/api/leaderboard?grade=${encodeURIComponent(student!.grade)}`));
       if (!response.ok) throw new Error('Could not load the grade leaderboard.');
       return response.json() as Promise<LeaderboardEntry[]>;
     },

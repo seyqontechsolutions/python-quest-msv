@@ -1,3 +1,5 @@
+import { API_BASE_URL } from '../lib/api-url';
+
 export type CustomFetchOptions = RequestInit & {
   responseType?: "json" | "text" | "blob" | "auto";
 };
@@ -15,7 +17,7 @@ const DEFAULT_JSON_ACCEPT = "application/json, application/problem+json";
 // Module-level configuration
 // ---------------------------------------------------------------------------
 
-let _baseUrl: string | null = null;
+let _baseUrl: string | null = API_BASE_URL;
 let _authTokenGetter: AuthTokenGetter | null = null;
 
 /**
