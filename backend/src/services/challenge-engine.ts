@@ -31,6 +31,44 @@ export type ValidationResult = {
 
 const TEST_COUNT = 5;
 
+const printQuestions = [
+  { id: 1, prompt: "Print this pattern on separate lines:\n*\n**\n***", output: "*\n**\n***" },
+  { id: 2, prompt: "Print It's a beautiful day.", output: "It's a beautiful day" },
+  { id: 3, prompt: "Print Hello World.", output: "Hello World" },
+  { id: 4, prompt: "Print Code., Learn., and Repeat. on three separate lines.", output: "Code.\nLearn.\nRepeat." },
+  { id: 5, prompt: "Using one print statement, print these lines:\nHello!\nI am learning Python.\nThank you.", output: "Hello!\nI am learning Python.\nThank you." },
+];
+
+export function getPrintQuestions() {
+  return printQuestions.map(({ id, prompt }) => ({ id, prompt }));
+}
+
+export async function validatePrintQuestion(
+  code: string,
+  questionId: number,
+  execute: (code: string, stdin: string) => Promise<CodeExecutionResult>,
+): Promise<ValidationResult> {
+  const question = printQuestions.find((item) => item.id === questionId);
+  if (!question) {
+    return { success: false, correct: false, output: "", error: "Reload the lesson to get a valid print question.", sampleInput: "No input is needed.", passedTests: 0, totalTests: 1, message: "The print question is invalid.", status: "service_unavailable" };
+  }
+
+  const expected = normalizeOutput(question.output);
+  const execution = await execute(code, "");
+  const actual = normalizeOutput(execution.stdout);
+  if (execution.serviceUnavailable) {
+    return { success: false, correct: false, output: execution.stdout, error: "Code execution service is temporarily unavailable. Please try again.", sampleInput: "No input is needed.", passedTests: 0, totalTests: 5, message: "The execution service could not validate this submission.", status: "service_unavailable" };
+  }
+  if (!execution.success) {
+    const status = execution.timedOut ? "timeout" : /SyntaxError|IndentationError|TabError|^  File .* line \d+/m.test(execution.stderr) ? "syntax_error" : "runtime_error";
+    return { success: false, correct: false, output: execution.stdout, error: execution.timedOut ? "Your program took too long to run." : execution.stderr, sampleInput: "No input is needed.", passedTests: 0, totalTests: 1, message: "Fix the error and run your code again.", status, failedTest: { input: `Question ${String(questionId).padStart(2, "0")}`, expected, actual } };
+  }
+  if (actual !== expected) {
+    return { success: true, correct: false, output: execution.stdout, error: "", sampleInput: "No input is needed.", passedTests: 0, totalTests: 1, message: "Check the output against this question, including spaces and line breaks.", status: "wrong_answer", failedTest: { input: `Question ${String(questionId).padStart(2, "0")}`, expected, actual } };
+  }
+  return { success: true, correct: true, output: execution.stdout, error: "", sampleInput: "No input is needed.", passedTests: 1, totalTests: 1, message: `Question ${String(questionId).padStart(2, "0")} passed.`, status: "passed" };
+}
+
 function normalizeOutput(value: string) {
   return value
     .replaceAll("\r\n", "\n")
@@ -42,15 +80,6 @@ function normalizeOutput(value: string) {
 
 function randomInteger(min: number, max: number) {
   return randomInt(min, max + 1);
-}
-
-function twoIntegerCases() {
-  return Array.from({ length: TEST_COUNT }, () => {
-    const a = randomInteger(-200, 200);
-    let b = 0;
-    while (b === 0) b = randomInteger(-25, 25);
-    return { stdin: `${a}\n${b}\n` };
-  });
 }
 
 function oneIntegerCases() {
@@ -113,18 +142,13 @@ function pythonList(values: Array<string | number>) {
 const definitions: Record<number, ChallengeDefinition> = {
   1: {
     id: 1,
-    title: "The Syntax Gate",
-    concept: "Input, variables, arithmetic operators",
-    starterCode: "",
-    inputSpecification: "Two integers arrive on separate input lines.",
-    outputSpecification: "Print their sum, remainder, and floor division, one result per line.",
-    generateTestCases: twoIntegerCases,
-    referenceFunction: (stdin) => {
-      const [a, b] = parseIntegers(stdin);
-      const quotient = Math.floor(a / b);
-      const remainder = a - quotient * b;
-      return `${a + b}\n${remainder}\n${quotient}`;
-    },
+    title: "Print Studio",
+    concept: "print() statements and text output",
+    starterCode: 'print("Hello, Python!")',
+    inputSpecification: "No input is needed.",
+    outputSpecification: "Print Hello, Python!",
+    generateTestCases: () => [{ stdin: "" }],
+    referenceFunction: () => "Hello, Python!",
   },
   2: {
     id: 2,

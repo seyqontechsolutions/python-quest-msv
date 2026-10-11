@@ -35,29 +35,38 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
-          <Router />
-        </WouterRouter>
-        <AssistedByBadge />
+        <div className="flex min-h-dvh flex-col">
+          <div className="flex-1">
+            <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
+              <Router />
+            </WouterRouter>
+          </div>
+          <AssistedByFooter />
+        </div>
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>
   );
 }
 
-function AssistedByBadge() {
+function AssistedByFooter() {
   return (
-    <a
-      href="https://seyqon-tech-solutions.netlify.app/"
-      target="_blank"
-      rel="noopener noreferrer"
-      aria-label="Assisted by Seyqon Tech Solutions"
-      title="Assisted by Seyqon Tech Solutions"
-      className="fixed bottom-4 right-4 z-[100] flex w-[132px] flex-col items-center gap-1 rounded-2xl border border-cyan-400/50 bg-slate-950/90 px-2.5 py-2 text-white shadow-xl backdrop-blur transition hover:-translate-y-1 hover:border-cyan-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 max-sm:bottom-3 max-sm:right-3 max-sm:w-[104px] max-sm:rounded-xl max-sm:px-2 max-sm:py-1.5"
-    >
-      <span className="font-mono-ui text-[10px] font-semibold uppercase tracking-[.14em] max-sm:text-[9px]">Assisted by</span>
-      <img src="/seyqon-logo.png" alt="Seyqon Tech Solutions" className="h-[104px] w-[104px] object-contain max-sm:h-[80px] max-sm:w-[80px]" />
-    </a>
+    <footer className="fixed inset-x-0 bottom-0 z-[100] flex h-[50px] items-center justify-center overflow-hidden bg-black">
+      <div className="flex h-full items-center justify-center gap-3 whitespace-nowrap px-2 text-[10px] leading-none text-white sm:gap-5 sm:text-xs">
+        <span>Assisted BY</span>
+        <a
+          href="https://seyqon-tech-solutions.netlify.app/"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="Seyqon Tech Solutions website"
+          title="Seyqon Tech Solutions"
+          className="flex h-[50px] items-center rounded-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cyan-300"
+        >
+          <img src="/seyqon-horizontal-logo.png" alt="Seyqon Tech Solutions" className="h-[40px] w-auto object-contain" />
+        </a>
+        <span>Your idea our solution</span>
+      </div>
+    </footer>
   );
 }
 

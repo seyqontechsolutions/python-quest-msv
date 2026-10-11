@@ -4,7 +4,7 @@ import express from "express";
 import { MongoClient } from "mongodb";
 import { createCipheriv, createDecipheriv, randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
-import { validateChallenge } from "./services/challenge-engine.ts";
+import { getPrintQuestions, validateChallenge, validatePrintQuestion } from "./services/challenge-engine.ts";
 import { executePython } from "./services/code-executor.ts";
 
 const app = express();
@@ -33,7 +33,7 @@ app.use(cors());
 app.use(express.json());
 
 const levels = [
-  ["The Syntax Gate", "Python foundations", "Warm-up", 100, "Repair the launch console with valid identifiers, print statements, and arithmetic operators.", ["Identifiers", "print()", "Arithmetic operators", "Floor division"], 10],
+  ["Print Studio", "Printing statements", "Warm-up", 100, "Complete five separate print() output checkpoints.", ["print()", "Strings", "New lines", "Output matching"], 5],
   ["Input Lab", "Input and decisions", "Easy", 140, "Build a number scanner that accepts values, calculates results, and spots even numbers.", ["input()", "int()", "Variables", "if-else", "Modulo"], 8],
   ["Loop Trail", "Repetition", "Easy", 160, "Guide the explorer through a pattern grid using for loops, range(), and end.", ["for loop", "range()", "end=", "Nested loops", "Patterns"], 8],
   ["String Forest", "Strings", "Steady", 180, "Decode messages with indexing, slicing, and a vowel-counting scanner.", ["Indexing", "Slicing", "Negative index", "String traversal"], 8],
@@ -143,6 +143,7 @@ async function connectDatabase() {
 app.get("/", (_req, res) => res.json({ service: "Python Quest API", status: "ok", health: "/api/healthz" }));
 app.get("/api/healthz", (_req, res) => res.json({ status: "ok" }));
 app.get("/api/game/levels", (_req, res) => res.json(levels));
+app.get("/api/game/print-challenge", (_req, res) => res.json({ questions: getPrintQuestions() }));
 app.get("/api/students/roster/:grade", (req, res) => res.json([...new Set([...students.values()].filter((s) => s.grade === req.params.grade).map((s) => s.name))].sort()));
 app.post("/api/students", async (req, res) => {
   const name = String(req.body?.name || "").trim().slice(0, 80);
@@ -186,6 +187,11 @@ app.post("/api/students/:studentId/progress", async (req, res) => {
   await persistStudent(student);
   res.json(profileFor(student));
 });
+app.get("/api/students/:studentId/attempts", (req, res) => {
+  const student = students.get(Number(req.params.studentId));
+  if (!student) return error(res, 404, "Student not found");
+  res.json(attempts.filter((attempt) => attempt.studentId === student.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
+});
 app.post("/api/students/:studentId/attempts", async (req, res) => {
   const student = students.get(Number(req.params.studentId));
   if (!student) return error(res, 404, "Student not found");
@@ -201,13 +207,19 @@ app.post("/api/students/:studentId/run", async (req, res) => {
   const levelId = Number(req.body?.levelId);
   const code = String(req.body?.code ?? "");
   if (!Number.isInteger(levelId) || !code.trim() || code.length > 12000) return error(res, 400, "A mission id and Python code (up to 12,000 characters) are required.");
-  res.json(await validateChallenge(levelId, code, executePython));
+  const questionId = Number(req.body?.questionId);
+  res.json(levelId === 1
+    ? await validatePrintQuestion(code, questionId, executePython)
+    : await validateChallenge(levelId, code, executePython));
 });
 app.post("/api/challenges/:challengeId/submit", async (req, res) => {
   const challengeId = Number(req.params.challengeId);
   const code = String(req.body?.code ?? "");
   if (!Number.isInteger(challengeId) || !code.trim() || code.length > 12000) return error(res, 400, "A mission id and Python code (up to 12,000 characters) are required.");
-  res.json(await validateChallenge(challengeId, code, executePython));
+  const questionId = Number(req.body?.questionId);
+  res.json(challengeId === 1
+    ? await validatePrintQuestion(code, questionId, executePython)
+    : await validateChallenge(challengeId, code, executePython));
 });
 app.get("/api/leaderboard", (req, res) => {
   const grade = req.query.grade == null ? null : String(req.query.grade);

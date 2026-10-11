@@ -8,10 +8,10 @@ import { apiUrl } from '../lib/api-url';
 
 const LESSONS: Record<number, { title: string; body: string; example: string; exampleoutput: string }> = {
   1: {
-    title: 'Learn: values have names',
-    body: 'A variable stores a value so you can reuse it. Python uses = for assignment. // starts a comment, and print() displays a result.',
-    example: 'score = int(input())\nprint(score)\nprint(17 // 5)',
-    exampleoutput: '//sample input 42\n//the stored value\n42\n//the floor-division result\n3',
+    title: 'Learn: print() displays text',
+    body: 'The print() statement displays text on the screen. Put text inside quotation marks. Each print() call starts a new line; use the escape sequence \\n to print multiple lines in one statement.',
+    example: 'print("Hello, Python!")',
+    exampleoutput: 'Hello, Python!',
   },
   2: {
     title: 'Learn: input becomes text',
@@ -70,7 +70,7 @@ const LESSONS: Record<number, { title: string; body: string; example: string; ex
 };
 
 const MISSION_PROMPTS: Record<number, string> = {
-  1: 'Read two integers from separate input lines. Print their sum, remainder, and floor division, one result per line.',
+  1: 'Use print() statements to answer the five printing questions in order. No input is needed.',
   2: 'Read one integer and print exactly "Divisible by 3" or "Not divisible by 3".',
   3: 'Read a start integer and a stop integer. Print every integer from start through stop, one per line.',
   4: 'Read one word. Print the word without its first and last character, then print its final character.',
@@ -83,6 +83,8 @@ const MISSION_PROMPTS: Record<number, string> = {
 };
 
 type LeaderboardEntry = { rank: number; name: string; xp: number; level: number; completedLevels: number };
+type PrintChallenge = { questions: Array<{ id: number; prompt: string }> };
+type StoredStudentAttempt = { questionId: string; correct: boolean; answer?: string; createdAt: string };
 
 function promptForLevel(id: number) {
   return MISSION_PROMPTS[id] ?? 'Write a short Python example that demonstrates this mission.';
@@ -105,6 +107,9 @@ export default function Play() {
   const [studentId, setStudentId] = useState(0);
   const [activeId, setActiveId] = useState<number | null>(null);
   const [answer, setAnswer] = useState('');
+  const [printQuestionIndex, setPrintQuestionIndex] = useState(0);
+  const [printAnswers, setPrintAnswers] = useState<Record<number, string>>({});
+  const [printSolved, setPrintSolved] = useState<boolean[]>([false, false, false, false, false]);
   const [feedback, setFeedback] = useState<'idle' | 'correct' | 'incorrect'>('idle');
   const [lessonRead, setLessonRead] = useState(false);
   const [codeOutput, setCodeOutput] = useState<RunCodeResult | null>(null);
@@ -132,6 +137,24 @@ export default function Play() {
       return response.json() as Promise<LeaderboardEntry[]>;
     },
   });
+  const { data: printChallenge, isLoading: printChallengeLoading, isError: printChallengeError } = useQuery<PrintChallenge>({
+    queryKey: ['/api/game/print-challenge', studentId],
+    enabled: studentId > 0 && activeId === 1,
+    queryFn: async () => {
+      const response = await fetch(apiUrl('/api/game/print-challenge'));
+      if (!response.ok) throw new Error('Could not load the print questions.');
+      return response.json() as Promise<PrintChallenge>;
+    },
+  });
+  const { data: studentAttempts } = useQuery<StoredStudentAttempt[]>({
+    queryKey: ['/api/students', studentId, 'attempts'],
+    enabled: studentId > 0,
+    queryFn: async () => {
+      const response = await fetch(apiUrl(`/api/students/${studentId}/attempts`));
+      if (!response.ok) throw new Error('Could not load saved question progress.');
+      return response.json() as Promise<StoredStudentAttempt[]>;
+    },
+  });
   const saveProgress = useSaveStudentProgress();
   const recordAttempt = useRecordStudentAttempt();
   const submitChallenge = useSubmitChallenge();
@@ -153,6 +176,30 @@ export default function Play() {
   }, []);
 
   const activeLevel = orderedLevels.find((level) => level.id === activeId) ?? orderedLevels[0];
+  const currentPrintQuestion = printChallenge?.questions[printQuestionIndex];
+  const allPrintQuestionsSolved = printSolved.every(Boolean);
+
+  useEffect(() => {
+    if (!studentAttempts) return;
+    const restoredSolved = [false, false, false, false, false];
+    const restoredAnswers: Record<number, string> = {};
+    for (const attempt of studentAttempts) {
+      const match = attempt.questionId.match(/^mission-1-question-(\d+)$/);
+      if (!match || !attempt.correct) continue;
+      const index = Number(match[1]) - 1;
+      if (index < 0 || index >= restoredSolved.length) continue;
+      restoredSolved[index] = true;
+      if (!(index in restoredAnswers) && attempt.answer) restoredAnswers[index] = attempt.answer;
+    }
+    setPrintSolved((current) => current.map((solved, index) => solved || restoredSolved[index]));
+    setPrintAnswers((current) => ({ ...restoredAnswers, ...current }));
+  }, [studentAttempts]);
+
+  useEffect(() => {
+    if (activeLevel?.id === 1 && !answer && printAnswers[printQuestionIndex]) {
+      setAnswer(printAnswers[printQuestionIndex]);
+    }
+  }, [activeLevel?.id, answer, printAnswers, printQuestionIndex]);
   const completed = activeLevel ? (student?.completedLevels ?? []).includes(activeLevel.id) : false;
   const currentLives = activeLevel ? (livesByLevel[activeLevel.id] ?? 30) : 30;
   const progressPercent = orderedLevels.length ? Math.min(100, (((student?.completedLevels?.length ?? 0) / orderedLevels.length) * 100)) : 0;
@@ -166,13 +213,26 @@ export default function Play() {
     if (window.innerWidth < 1024) setShowMap(false);
   }
 
+  function choosePrintQuestion(index: number) {
+    if (index < 0 || index >= (printChallenge?.questions.length ?? 0) || submitChallenge.isPending) return;
+    setPrintAnswers((current) => ({ ...current, [printQuestionIndex]: answer }));
+    setPrintQuestionIndex(index);
+    setAnswer(printAnswers[index] ?? '');
+    setCodeOutput(null);
+    setFeedback('idle');
+  }
+
   async function submitAnswer() {
     if (!activeLevel || !studentId || !answer.trim() || recordAttempt.isPending || submitChallenge.isPending) return;
+    if (activeLevel.id === 1 && !printChallenge) return;
     let execution: RunCodeResult;
     try {
+      const challengeData = activeLevel.id === 1
+        ? { code: answer, questionId: currentPrintQuestion?.id }
+        : { code: answer };
       execution = await submitChallenge.mutateAsync({
         challengeId: activeLevel.id,
-        data: { code: answer },
+        data: challengeData,
       });
     } catch {
       execution = {
@@ -189,6 +249,11 @@ export default function Play() {
     }
     setCodeOutput(execution);
     const isCorrect = execution.correct;
+    const nextPrintSolved = activeLevel.id === 1
+      ? printSolved.map((solved, index) => solved || (index === printQuestionIndex && isCorrect))
+      : printSolved;
+    const missionPassed = activeLevel.id === 1 ? nextPrintSolved.every(Boolean) : isCorrect;
+    if (activeLevel.id === 1 && isCorrect) setPrintSolved(nextPrintSolved);
     const livesRemaining = isCorrect ? currentLives : Math.max(0, currentLives - 1);
     setFeedback(isCorrect ? 'correct' : 'incorrect');
     setLivesByLevel((current) => ({ ...current, [activeLevel.id]: livesRemaining }));
@@ -196,10 +261,15 @@ export default function Play() {
       studentId,
       data: {
         levelId: activeLevel.id,
-        questionId: `mission-${activeLevel.id}-practice`,
+        questionId: activeLevel.id === 1 ? `mission-1-question-${printQuestionIndex + 1}` : `mission-${activeLevel.id}-practice`,
         correct: isCorrect,
         answer,
         tabSwitchDetected: tabSwitches > 0,
+      },
+    }, {
+      onSuccess: (attempt) => {
+        const attemptsKey = ['/api/students', studentId, 'attempts'];
+        queryClient.setQueryData<StoredStudentAttempt[]>(attemptsKey, (current) => [attempt, ...(current ?? [])]);
       },
     });
     saveProgress.mutate(
@@ -207,9 +277,9 @@ export default function Play() {
         studentId,
         data: {
           levelId: activeLevel.id,
-          xpEarned: isCorrect ? activeLevel.xp : 0,
+          xpEarned: missionPassed ? activeLevel.xp : 0,
           livesRemaining,
-          completed: isCorrect,
+          completed: missionPassed,
           tabSwitches,
         },
       },
@@ -226,8 +296,8 @@ export default function Play() {
   if (!studentId) return null;
 
   return (
-    <main className="min-h-[100dvh] bg-background text-foreground">
-      <header className="sticky top-0 z-20 border-b-2 border-foreground bg-background/95 backdrop-blur">
+    <main className="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
+      <header className="sticky top-0 z-20 shrink-0 border-b-2 border-foreground bg-background/95 backdrop-blur">
         <div className="mx-auto flex max-w-[1500px] items-center justify-between gap-4 px-4 py-3 sm:px-7">
           <Link href="/" className="flex shrink-0 items-center gap-2.5" data-testid="link-play-logo">
             <div className="grid h-9 w-9 place-items-center rounded-lg bg-foreground text-primary"><Code2 size={19} /></div>
@@ -252,8 +322,8 @@ export default function Play() {
         </div>
       </header>
 
-      <div className="mx-auto flex max-w-[1500px] gap-0 lg:gap-8">
-        <aside className={`${showMap ? 'block' : 'hidden'} w-full shrink-0 border-r-0 border-foreground/15 px-4 py-6 sm:px-7 lg:block lg:w-[370px] lg:border-r-2 lg:py-9`}>
+      <div className="mx-auto flex min-h-0 w-full max-w-[1500px] flex-1 gap-0 overflow-hidden lg:gap-8">
+        <aside className={`${showMap ? 'block' : 'hidden'} h-full min-h-0 w-full shrink-0 overflow-y-auto overscroll-contain border-r-0 border-foreground/15 px-4 py-6 pb-24 sm:px-7 lg:block lg:w-[370px] lg:border-r-2 lg:py-9 lg:pb-28`}>
           <div className="mb-8 flex items-end justify-between">
             <div>
               <p className="font-mono-ui text-[10px] uppercase tracking-[.2em] text-muted-foreground">Mission map</p>
@@ -327,7 +397,7 @@ export default function Play() {
           </div>
         </aside>
 
-        <section className={`${showMap ? 'hidden lg:block' : 'block'} min-w-0 flex-1 px-4 py-6 sm:px-7 lg:py-9 lg:pr-10`}>
+        <section className={`${showMap ? 'hidden lg:block' : 'block'} h-full min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain px-4 py-6 pb-24 sm:px-7 lg:py-9 lg:pb-28 lg:pr-10`}>
           <button type="button" onClick={() => setShowMap(true)} className="mb-6 flex items-center gap-2 text-sm font-semibold lg:hidden" data-testid="button-back-to-map"><ArrowLeft size={16} /> All missions</button>
           {!activeLevel ? (
             <div className="grid min-h-[50vh] place-items-center text-center" data-testid="empty-active-mission"><div><Flag className="mx-auto mb-4 text-secondary" size={30} /><p className="font-bold">Choose a mission to begin.</p></div></div>
@@ -386,12 +456,42 @@ export default function Play() {
                           <span className="font-mono-ui text-xs text-secondary">01</span>
                           <div>
                             <p className="font-mono-ui text-[10px] uppercase tracking-[.18em] text-primary">Your changed challenge</p>
-                            <p className="mt-2 max-w-xl font-mono-ui text-sm leading-relaxed text-background/90">{promptForLevel(activeLevel.id)}</p>
+                            {activeLevel.id === 1 ? (
+                              <div className="mt-3 max-w-xl rounded-lg border border-background/15 bg-background/5 p-3 text-sm leading-relaxed text-background/90">
+                                <p className="mb-3">Complete each print question separately. No input is needed; print only the requested output.</p>
+                                {printChallengeLoading && <p className="text-background/60">Loading the five printing questions…</p>}
+                                {printChallengeError && <p className="text-secondary">Could not load the questions. Refresh the page to try again.</p>}
+                                {printChallenge && <div className="mb-3 flex flex-wrap gap-2" aria-label="Printing question progress">
+                                  {printChallenge.questions.map((question, index) => (
+                                    <button key={question.id} type="button" onClick={() => choosePrintQuestion(index)} disabled={submitChallenge.isPending} aria-current={printQuestionIndex === index ? 'step' : undefined} aria-label={`Question ${index + 1}${printSolved[index] ? ', completed' : ''}`} className={`grid h-9 min-w-10 place-items-center rounded-lg border px-2 font-mono-ui text-xs font-bold transition disabled:cursor-wait ${printSolved[index] ? 'border-emerald-400 bg-emerald-500 text-white' : printQuestionIndex === index ? 'border-primary bg-primary text-foreground' : 'border-background/25 bg-background/10 text-background/70 hover:border-primary'}`}>
+                                      {String(index + 1).padStart(2, '0')}{printSolved[index] && <Check size={12} className="ml-1 inline" />}
+                                    </button>
+                                  ))}
+                                </div>}
+                                {currentPrintQuestion && <p className="whitespace-pre-wrap leading-relaxed"><span className="mr-2 font-mono-ui font-bold text-primary">{String(printQuestionIndex + 1).padStart(2, '0')}.</span>{currentPrintQuestion.prompt}</p>}
+                              </div>
+                            ) : <p className="mt-2 max-w-xl font-mono-ui text-sm leading-relaxed text-background/90">{promptForLevel(activeLevel.id)}</p>}
                           </div>
                         </div>
                         <textarea
                           value={answer}
-                          onChange={(event) => { setAnswer(event.target.value); setCodeOutput(null); if (feedback !== 'idle') setFeedback('idle'); }}
+                          onChange={(event) => { setAnswer(event.target.value); if (activeLevel.id === 1) setPrintAnswers((current) => ({ ...current, [printQuestionIndex]: event.target.value })); setCodeOutput(null); if (feedback !== 'idle') setFeedback('idle'); }}
+                          onKeyDown={(event) => {
+                            if (event.key !== 'Tab') return;
+                            event.preventDefault();
+                            const editor = event.currentTarget;
+                            const start = editor.selectionStart;
+                            const end = editor.selectionEnd;
+                            const indentation = '    ';
+                            setAnswer((current) => current.slice(0, start) + indentation + current.slice(end));
+                            if (activeLevel.id === 1) setPrintAnswers((current) => ({ ...current, [printQuestionIndex]: answer.slice(0, start) + indentation + answer.slice(end) }));
+                            setCodeOutput(null);
+                            if (feedback !== 'idle') setFeedback('idle');
+                            window.requestAnimationFrame(() => {
+                              editor.focus();
+                              editor.selectionStart = editor.selectionEnd = start + indentation.length;
+                            });
+                          }}
                           data-testid="input-code-answer"
                           placeholder={'# write your Python here\n'}
                           spellCheck={false}
@@ -421,10 +521,15 @@ export default function Play() {
                           </div>
                         )}
                         <div className="mt-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
-                          <div className="flex items-center gap-2 font-mono-ui text-[10px] uppercase tracking-wider text-background/45"><span className="h-2 w-2 rounded-full bg-primary" /> no autosave needed</div>
-                          <button type="button" onClick={submitAnswer} disabled={!answer.trim() || recordAttempt.isPending || saveProgress.isPending} data-testid="button-submit-answer" className="flex items-center justify-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-bold text-foreground transition hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-45">
-                             {recordAttempt.isPending || submitChallenge.isPending ? 'Running...' : completed ? 'Run again' : 'Run and check'} <PlayIcon size={15} fill="currentColor" />
-                          </button>
+                          <div className="flex flex-wrap items-center justify-end gap-2">
+                            {activeLevel.id === 1 && <>
+                              <button type="button" onClick={() => choosePrintQuestion(printQuestionIndex - 1)} disabled={printQuestionIndex === 0 || submitChallenge.isPending} className="flex items-center gap-1 rounded-xl border border-background/25 px-3 py-3 text-sm font-semibold text-background/80 transition hover:border-primary disabled:cursor-not-allowed disabled:opacity-35" aria-label="Previous question"><ArrowLeft size={15} /> Previous</button>
+                              <button type="button" onClick={() => choosePrintQuestion(printQuestionIndex + 1)} disabled={printQuestionIndex >= (printChallenge?.questions.length ?? 0) - 1 || submitChallenge.isPending} className="flex items-center gap-1 rounded-xl border border-background/25 px-3 py-3 text-sm font-semibold text-background/80 transition hover:border-primary disabled:cursor-not-allowed disabled:opacity-35" aria-label="Next question">Next <ArrowRight size={15} /></button>
+                            </>}
+                            <button type="button" onClick={submitAnswer} disabled={!answer.trim() || (activeLevel.id === 1 && !currentPrintQuestion) || recordAttempt.isPending || saveProgress.isPending || submitChallenge.isPending} data-testid="button-submit-answer" className="flex items-center justify-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-bold text-foreground transition hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-45">
+                               {recordAttempt.isPending || submitChallenge.isPending ? 'Running...' : activeLevel.id === 1 && printSolved[printQuestionIndex] ? 'Run again' : completed ? 'Run again' : 'Run and check'} <PlayIcon size={15} fill="currentColor" />
+                            </button>
+                          </div>
                         </div>
                       </>
                     )}
@@ -435,7 +540,7 @@ export default function Play() {
                   <div className="rounded-2xl border-2 border-foreground bg-card p-5">
                     <div className="flex items-center justify-between"><span className="font-mono-ui text-[10px] uppercase tracking-[.18em] text-muted-foreground">Objective feedback</span><CircleAlert size={15} className="text-secondary" /></div>
                     {feedback === 'idle' && <div className="mt-6"><p className="text-lg font-bold">Your move.</p><p className="mt-2 text-sm leading-relaxed text-muted-foreground">Use the console to make the idea visible. Clear code beats clever code.</p></div>}
-                    {feedback === 'correct' && <div className="mt-6 animate-rise"><div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-primary"><Check size={21} strokeWidth={3} /></div><p className="text-lg font-bold">Mission objective met.</p><p className="mt-2 text-sm leading-relaxed text-muted-foreground">That answer has the right shape. XP saved to your run.</p></div>}
+                    {feedback === 'correct' && <div className="mt-6 animate-rise"><div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-primary"><Check size={21} strokeWidth={3} /></div><p className="text-lg font-bold">{activeLevel.id === 1 && !allPrintQuestionsSolved ? 'Question passed.' : 'Mission objective met.'}</p><p className="mt-2 text-sm leading-relaxed text-muted-foreground">{activeLevel.id === 1 && !allPrintQuestionsSolved ? 'This question is marked green. Continue through the remaining questions.' : 'That answer has the right shape. XP saved to your run.'}</p></div>}
                     {feedback === 'incorrect' && <div className="mt-6 animate-rise"><div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-secondary"><X size={21} strokeWidth={3} /></div><p className="text-lg font-bold">Not quite there yet.</p><p className="mt-2 text-sm leading-relaxed text-muted-foreground">Read the objective once more, then make one small change. You still have room to experiment.</p></div>}
                   </div>
                   <div className="rounded-2xl border-2 border-foreground/15 bg-primary/35 p-5">
@@ -451,8 +556,8 @@ export default function Play() {
               </div>
               {tabSwitches > 0 && <div className="mt-6 flex items-start gap-3 rounded-2xl border-2 border-secondary bg-secondary/15 p-4 text-sm" data-testid="status-tab-switch-warning"><CircleAlert className="mt-0.5 shrink-0" size={17} /><p><strong>Focus check:</strong> we noticed {tabSwitches} tab switch{tabSwitches === 1 ? '' : 'es'} while this mission was open. Your teacher can see this checkpoint.</p></div>}
               <div className="mt-7 flex flex-wrap items-center justify-between gap-3">
-                <button type="button" onClick={() => { setAnswer(''); setFeedback('idle'); }} className="flex items-center gap-2 text-sm font-semibold text-muted-foreground transition hover:text-foreground" data-testid="button-reset-code"><RotateCcw size={15} /> Clear code</button>
-                {feedback === 'correct' && <button type="button" onClick={() => { const next = orderedLevels[orderedLevels.findIndex((level) => level.id === activeLevel.id) + 1]; if (next) chooseLevel(next.id); else setShowMap(true); }} className="flex items-center gap-2 rounded-xl border-2 border-foreground bg-foreground px-4 py-2.5 text-sm font-bold text-background transition hover:bg-secondary hover:text-foreground" data-testid="button-next-mission">{orderedLevels.findIndex((level) => level.id === activeLevel.id) === orderedLevels.length - 1 ? 'Back to map' : 'Next mission'} <ArrowRight size={16} /></button>}
+                <button type="button" onClick={() => { setAnswer(''); if (activeLevel.id === 1) setPrintAnswers((current) => ({ ...current, [printQuestionIndex]: '' })); setFeedback('idle'); }} className="flex items-center gap-2 text-sm font-semibold text-muted-foreground transition hover:text-foreground" data-testid="button-reset-code"><RotateCcw size={15} /> Clear code</button>
+                {((activeLevel.id === 1 && allPrintQuestionsSolved) || (activeLevel.id !== 1 && feedback === 'correct')) && <button type="button" onClick={() => { const next = orderedLevels[orderedLevels.findIndex((level) => level.id === activeLevel.id) + 1]; if (next) chooseLevel(next.id); else setShowMap(true); }} className="flex items-center gap-2 rounded-xl border-2 border-foreground bg-foreground px-4 py-2.5 text-sm font-bold text-background transition hover:bg-secondary hover:text-foreground" data-testid="button-next-mission">{orderedLevels.findIndex((level) => level.id === activeLevel.id) === orderedLevels.length - 1 ? 'Back to map' : activeLevel.id === 1 ? 'Next lesson' : 'Next mission'} <ArrowRight size={16} /></button>}
               </div>
             </div>
           )}

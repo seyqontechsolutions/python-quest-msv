@@ -48,4 +48,6 @@ The frontend includes grade selection, student accounts with passwords, the game
 
 The backend stores each grade in its own `grade_6` through `grade_12` MongoDB collection, with matching `attempts_grade_6` through `attempts_grade_12` collections. It executes Python locally with a timeout and checks missions against generated test cases.
 
+The first mission, Print Studio, teaches `print()` with a worked example and five randomly selected questions from the supplied printing-question set. The checker validates the output for those exact five prompts.
+
 The existing workspace app remains unchanged.
