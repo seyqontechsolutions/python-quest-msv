@@ -12,7 +12,7 @@ const port = Number(process.env.PORT || 5000);
 const scrypt = promisify(scryptCallback);
 function passwordEncryptionKey() {
   const key = Buffer.from(process.env.PASSWORD_ENCRYPTION_KEY || "", "hex");
-  if (key.length !== 32) throw new Error("PASSWORD_ENCRYPTION_KEY must be 64 hexadecimal characters in backend/.env.");
+  if (key.length !== 32) throw new Error("PASSWORD_ENCRYPTION_KEY must be set to exactly 64 hexadecimal characters.");
   return key;
 }
 function encryptPassword(password) {
@@ -52,6 +52,8 @@ let nextAttemptId = 1;
 const gradeCodes = ["6", "7", "8", "9", "10", "11", "12"];
 const gradeCollections = new Map();
 const attemptCollections = new Map();
+let legacyStudentsCollection;
+let legacyAttemptsCollection;
 const levelsFor = (student) => [...student.progress.values()];
 const profileFor = (student) => ({ id: student.id, name: student.name, grade: student.grade, xp: student.xp, level: student.level, lives: student.lives, completedLevels: [...student.progress.values()].filter((p) => p.completed).map((p) => p.levelId), streak: 0, lastSeenAt: student.lastSeenAt });
 const error = (res, status, message) => res.status(status).json({ error: message });
@@ -76,11 +78,16 @@ const persistStudent = (student) => gradeCollections.get(student.grade).replaceO
 const persistAttempt = (attempt, grade) => attemptCollections.get(grade).insertOne({ _id: attempt.id, ...attempt });
 
 async function connectDatabase() {
+  // Passwords need reversible encryption so teachers can view them. Validate
+  // this deployment setting before accepting requests instead of failing on signup.
+  passwordEncryptionKey();
   const uri = process.env.MONGODB_URI;
   if (!uri) throw new Error("MONGODB_URI is missing. Add it to backend/.env.");
   const client = new MongoClient(uri);
   await client.connect();
   const database = client.db();
+  legacyStudentsCollection = database.collection("students");
+  legacyAttemptsCollection = database.collection("attempts");
   for (const grade of gradeCodes) {
     gradeCollections.set(grade, database.collection(`grade_${grade}`));
     attemptCollections.set(grade, database.collection(`attempts_grade_${grade}`));
@@ -91,7 +98,7 @@ async function connectDatabase() {
   }
 
   // Migrate records from the initial shared collections, if present.
-  const legacyStudents = await database.collection("students").find().toArray();
+  const legacyStudents = await legacyStudentsCollection.find().toArray();
   for (const doc of legacyStudents) {
     const grade = doc.grade === "8A" || doc.grade === "8B" ? "8" : String(doc.grade);
     if (!gradeCodes.includes(grade)) continue;
@@ -110,7 +117,7 @@ async function connectDatabase() {
     }
   }
 
-  const legacyAttempts = await database.collection("attempts").find().toArray();
+  const legacyAttempts = await legacyAttemptsCollection.find().toArray();
   const gradeByStudent = new Map([...students.values()].map((student) => [student.id, student.grade]));
   for (const doc of legacyAttempts) {
     const grade = gradeByStudent.get(doc.studentId);
@@ -133,6 +140,7 @@ async function connectDatabase() {
   console.log(`Grade collections ready: ${gradeCodes.map((grade) => `grade_${grade}`).join(", ")}`);
 }
 
+app.get("/", (_req, res) => res.json({ service: "Python Quest API", status: "ok", health: "/api/healthz" }));
 app.get("/api/healthz", (_req, res) => res.json({ status: "ok" }));
 app.get("/api/game/levels", (_req, res) => res.json(levels));
 app.get("/api/students/roster/:grade", (req, res) => res.json([...new Set([...students.values()].filter((s) => s.grade === req.params.grade).map((s) => s.name))].sort()));
@@ -209,6 +217,36 @@ app.get("/api/leaderboard", (req, res) => {
     .sort((a, b) => b.xp - a.xp);
   res.json(rankedStudents.slice(0, 20).map((student, index) => ({ rank: index + 1, name: student.name, xp: student.xp, level: student.level, completedLevels: [...student.progress.values()].filter((progress) => progress.completed).length })));
 });
+app.post("/api/teacher/students", async (req, res) => {
+  if ((req.header("x-teacher-pin") || "") !== (process.env.TEACHER_PIN || "0626")) return error(res, 401, "Teacher PIN required");
+  const name = String(req.body?.name || "").trim().slice(0, 80);
+  const grade = String(req.body?.grade || "");
+  const password = String(req.body?.password || "");
+  if (!name || !gradeCodes.includes(grade)) return error(res, 400, "Student name and grade (6–12) are required.");
+  if (password.length < 6 || password.length > 128) return error(res, 400, "Password must be between 6 and 128 characters.");
+  const duplicate = [...students.values()].some((entry) => entry.grade === grade && entry.name.toLowerCase() === name.toLowerCase());
+  if (duplicate) return error(res, 409, "A student with that name already exists in this grade.");
+  const student = { id: nextId++, name, grade, passwordHash: await hashPassword(password), passwordEncrypted: encryptPassword(password), xp: 0, level: 1, lives: 30, lastSeenAt: new Date().toISOString(), progress: new Map() };
+  await persistStudent(student);
+  students.set(student.id, student);
+  res.status(201).json({ ...profileFor(student), password, passwordSet: true, status: "online", tabSwitches: 0 });
+});
+app.delete("/api/teacher/students/:studentId", async (req, res) => {
+  if ((req.header("x-teacher-pin") || "") !== (process.env.TEACHER_PIN || "0626")) return error(res, 401, "Teacher PIN required");
+  const student = students.get(Number(req.params.studentId));
+  if (!student) return error(res, 404, "Student not found");
+  await Promise.all([
+    gradeCollections.get(student.grade).deleteOne({ _id: student.id }),
+    attemptCollections.get(student.grade).deleteMany({ studentId: student.id }),
+    legacyStudentsCollection.deleteMany({ $or: [{ _id: student.id }, { id: student.id }] }),
+    legacyAttemptsCollection.deleteMany({ studentId: student.id }),
+  ]);
+  students.delete(student.id);
+  for (let index = attempts.length - 1; index >= 0; index -= 1) {
+    if (attempts[index].studentId === student.id) attempts.splice(index, 1);
+  }
+  res.json({ success: true, deletedStudentId: student.id });
+});
 app.patch("/api/teacher/students/:studentId", async (req, res) => {
   if ((req.header("x-teacher-pin") || "") !== (process.env.TEACHER_PIN || "0626")) return error(res, 401, "Teacher PIN required");
   const student = students.get(Number(req.params.studentId));
@@ -245,6 +283,12 @@ app.get("/api/teacher/dashboard", (req, res) => {
   const all = [...students.values()];
   const summaries = all.map((s) => ({ id: s.id, name: s.name, grade: s.grade, xp: s.xp, level: s.level, lives: s.lives, completedLevels: [...s.progress.values()].filter((p) => p.completed).length, lastSeenAt: s.lastSeenAt, status: Date.now() - new Date(s.lastSeenAt).getTime() < 900000 ? "online" : "away", tabSwitches: levelsFor(s).reduce((sum, p) => sum + p.tabSwitches, 0), passwordSet: Boolean(s.passwordHash) }));
   res.json({ totalStudents: all.length, activeToday: all.filter((s) => Date.now() - new Date(s.lastSeenAt).getTime() < 86400000).length, completedQuest: summaries.filter((s) => s.completedLevels >= levels.length).length, averageXp: all.length ? Math.round(all.reduce((sum, s) => sum + s.xp, 0) / all.length) : 0, students: summaries, recentActivity: attempts.slice(0, 12).map((a) => ({ studentName: students.get(a.studentId)?.name ?? "Student", event: a.tabSwitchDetected ? "Flagged a tab switch" : a.correct ? "Solved a coding challenge" : "Made an attempt", levelId: a.levelId, createdAt: a.createdAt })) });
+});
+
+app.use((cause, req, res, next) => {
+  if (res.headersSent) return next(cause);
+  console.error(`Request failed: ${req.method} ${req.path}`, cause);
+  res.status(500).json({ error: "The server could not complete this request. Check the backend logs." });
 });
 
 connectDatabase().then(() => {

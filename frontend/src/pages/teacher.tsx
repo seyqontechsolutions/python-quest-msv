@@ -1,7 +1,7 @@
-import { Activity, ArrowLeft, Check, CircleAlert, Clock3, Code2, Pencil, RefreshCw, Save, ShieldAlert, Sparkles, Users, X, Zap } from 'lucide-react';
+import { Activity, ArrowLeft, Check, CircleAlert, Clock3, Code2, Pencil, RefreshCw, Save, ShieldAlert, Sparkles, Trash2, UserPlus, Users, X, Zap } from 'lucide-react';
 import { getGetTeacherDashboardQueryKey, useGetTeacherDashboard } from '../api-client-react';
 import { useEffect, useState } from 'react';
-import type { ReactNode } from 'react';
+import type { FormEvent, ReactNode } from 'react';
 import { Link } from 'wouter';
 import { apiUrl } from '../lib/api-url';
 
@@ -52,6 +52,10 @@ export default function Teacher() {
   const [newPassword, setNewPassword] = useState('');
   const [editError, setEditError] = useState('');
   const [savingStudent, setSavingStudent] = useState(false);
+  const [newStudentName, setNewStudentName] = useState('');
+  const [newStudentPassword, setNewStudentPassword] = useState('');
+  const [creatingStudent, setCreatingStudent] = useState(false);
+  const [deletingStudentId, setDeletingStudentId] = useState<number | null>(null);
   const { data, isLoading, isError, refetch, isFetching } = useGetTeacherDashboard({
     query: { enabled: submittedPin.length > 0, retry: false, refetchInterval: 5000, queryKey: getGetTeacherDashboardQueryKey() },
     request: { headers: { 'x-teacher-pin': submittedPin } },
@@ -114,6 +118,50 @@ export default function Teacher() {
       setEditError(cause instanceof Error ? cause.message : 'Could not update this student.');
     } finally {
       setSavingStudent(false);
+    }
+  }
+
+  async function createStudent(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setCreatingStudent(true);
+    setStudentDataError('');
+    try {
+      const response = await fetch(apiUrl('/api/teacher/students'), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-teacher-pin': submittedPin },
+        body: JSON.stringify({ name: newStudentName, grade: selectedGrade, password: newStudentPassword }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? 'Could not add this student.');
+      setStudentData((records) => [result as StudentDataRecord, ...records]);
+      setNewStudentName('');
+      setNewStudentPassword('');
+      await refetch();
+    } catch (cause) {
+      setStudentDataError(cause instanceof Error ? cause.message : 'Could not add this student.');
+    } finally {
+      setCreatingStudent(false);
+    }
+  }
+
+  async function deleteStudent(student: StudentDataRecord) {
+    if (!window.confirm(`Delete ${student.name} from Grade ${student.grade}? Their progress and attempts will also be removed.`)) return;
+    setDeletingStudentId(student.id);
+    setStudentDataError('');
+    try {
+      const response = await fetch(apiUrl(`/api/teacher/students/${student.id}`), {
+        method: 'DELETE',
+        headers: { 'x-teacher-pin': submittedPin },
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error ?? 'Could not delete this student.');
+      setStudentData((records) => records.filter((record) => record.id !== student.id));
+      if (editingStudentId === student.id) setEditingStudentId(null);
+      await refetch();
+    } catch (cause) {
+      setStudentDataError(cause instanceof Error ? cause.message : 'Could not delete this student.');
+    } finally {
+      setDeletingStudentId(null);
     }
   }
 
@@ -209,6 +257,11 @@ export default function Teacher() {
                 <label htmlFor="student-data-grade" className="block w-full max-w-xs font-mono-ui text-[10px] uppercase tracking-[.16em] text-muted-foreground">Filter by grade<select id="student-data-grade" value={selectedGrade} onChange={(event) => { setSelectedGrade(event.target.value); setEditingStudentId(null); setEditError(''); }} className="mt-2 w-full rounded-xl border-2 border-foreground bg-card px-3 py-2.5 font-sans text-sm font-semibold normal-case tracking-normal text-foreground outline-none focus:ring-4 focus:ring-primary/40" data-testid="select-student-data-grade">{['6', '7', '8', '9', '10', '11', '12'].map((grade) => <option key={grade} value={grade}>Grade {grade}</option>)}</select></label>
                 <span className="font-mono-ui text-[10px] uppercase tracking-wider text-muted-foreground">{studentData.length} student{studentData.length === 1 ? '' : 's'} in grade {selectedGrade}</span>
               </div>
+              <form onSubmit={createStudent} className="grid gap-3 rounded-xl border-2 border-foreground/15 bg-card p-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end" data-testid="form-add-student">
+                <label className="block font-mono-ui text-[9px] uppercase tracking-wider text-muted-foreground">New student name<input required value={newStudentName} onChange={(event) => setNewStudentName(event.target.value)} maxLength={80} autoComplete="off" placeholder="Student name" className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 font-sans text-sm normal-case tracking-normal text-foreground" data-testid="input-new-student-name" /></label>
+                <label className="block font-mono-ui text-[9px] uppercase tracking-wider text-muted-foreground">Initial password<input required type="password" value={newStudentPassword} onChange={(event) => setNewStudentPassword(event.target.value)} minLength={6} maxLength={128} autoComplete="new-password" placeholder="At least 6 characters" className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 font-sans text-sm normal-case tracking-normal text-foreground" data-testid="input-new-student-password" /></label>
+                <button type="submit" disabled={creatingStudent || !newStudentName.trim() || newStudentPassword.length < 6} className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-foreground px-4 py-2.5 text-xs font-bold text-background disabled:opacity-50" data-testid="button-add-student"><UserPlus size={14} />{creatingStudent ? 'Adding…' : `Add to Grade ${selectedGrade}`}</button>
+              </form>
               {loadingStudentData && <p className="rounded-xl border border-border bg-card p-5 text-sm text-muted-foreground">Loading Grade {selectedGrade}…</p>}
               {studentDataError && <p className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm font-semibold text-destructive">{studentDataError}</p>}
               {!loadingStudentData && !studentDataError && studentData.length === 0 && <p className="rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">No students are registered in Grade {selectedGrade} yet.</p>}
@@ -224,7 +277,7 @@ export default function Teacher() {
                       </div>
                     ) : (
                       <>
-                        <div className="flex items-start justify-between gap-2"><div><p className="font-bold">{student.name}</p><p className="mt-0.5 font-mono-ui text-[9px] uppercase tracking-wider text-muted-foreground">Grade {student.grade} · {student.status}</p></div><button type="button" onClick={() => editStudent(student)} className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-foreground/20 px-2.5 py-1.5 text-xs font-semibold transition hover:bg-primary" data-testid={`button-edit-student-${student.id}`}><Pencil size={12} />Edit</button></div>
+                        <div className="flex items-start justify-between gap-2"><div><p className="font-bold">{student.name}</p><p className="mt-0.5 font-mono-ui text-[9px] uppercase tracking-wider text-muted-foreground">Grade {student.grade} · {student.status}</p></div><div className="flex shrink-0 gap-1.5"><button type="button" onClick={() => editStudent(student)} className="inline-flex items-center gap-1 rounded-lg border border-foreground/20 px-2.5 py-1.5 text-xs font-semibold transition hover:bg-primary" data-testid={`button-edit-student-${student.id}`}><Pencil size={12} />Edit</button><button type="button" onClick={() => deleteStudent(student)} disabled={deletingStudentId === student.id} className="inline-flex items-center gap-1 rounded-lg border border-destructive/30 px-2.5 py-1.5 text-xs font-semibold text-destructive transition hover:bg-destructive/10 disabled:opacity-50" data-testid={`button-delete-student-${student.id}`}><Trash2 size={12} />{deletingStudentId === student.id ? 'Deleting…' : 'Delete'}</button></div></div>
                         <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px]"><span className="text-muted-foreground">XP / level</span><span className="text-right font-semibold">{student.xp} XP · {student.level}</span><span className="text-muted-foreground">Missions complete</span><span className="text-right font-semibold">{student.completedLevels.length}/10</span><span className="text-muted-foreground">Lives</span><span className="text-right font-semibold">{student.lives}</span><span className="text-muted-foreground">Focus checks</span><span className="text-right font-semibold">{student.tabSwitches}</span><span className="text-muted-foreground">Last seen</span><span className="text-right font-semibold">{timeSince(student.lastSeenAt)}</span></div>
                         <div className="mt-3 rounded-lg border border-border bg-background p-3"><p className="font-mono-ui text-[9px] uppercase tracking-wider text-muted-foreground">Student password</p>{student.password ? <code className="mt-1 block break-all text-sm font-semibold">{student.password}</code> : <p className="mt-1 text-xs text-muted-foreground">Not available for this older account. Use Edit to set a new password.</p>}</div>
                       </>
