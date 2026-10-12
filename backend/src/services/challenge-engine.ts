@@ -32,11 +32,11 @@ export type ValidationResult = {
 const TEST_COUNT = 5;
 
 const printQuestions = [
-  { id: 1, prompt: "Print this pattern on separate lines:\n*\n**\n***", output: "*\n**\n***" },
-  { id: 2, prompt: "Print It's a beautiful day.", output: "It's a beautiful day" },
-  { id: 3, prompt: "Print Hello World.", output: "Hello World" },
-  { id: 4, prompt: "Print Code., Learn., and Repeat. on three separate lines.", output: "Code.\nLearn.\nRepeat." },
-  { id: 5, prompt: "Using one print statement, print these lines:\nHello!\nI am learning Python.\nThank you.", output: "Hello!\nI am learning Python.\nThank you." },
+  { id: 1, prompt: "Print Apple-Banana-Mango.", output: "Apple-Banana-Mango" },
+  { id: 2, prompt: "Print Name and Age separated by a tab.", output: "Name\tAge" },
+  { id: 3, prompt: "Print ABCDEF using the three strings AB, CD, and EF in a single print() statement.", output: "ABCDEF" },
+  { id: 4, prompt: "Print the following pattern using separate print() statements:\n*****\n*   *\n*****", output: "*****\n*   *\n*****" },
+  { id: 5, prompt: "Print A-B-C! using a single print() statement.", output: "A-B-C!" },
 ];
 
 export function getPrintQuestions() {

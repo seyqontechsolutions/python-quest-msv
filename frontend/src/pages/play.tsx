@@ -184,7 +184,7 @@ export default function Play() {
     const restoredSolved = [false, false, false, false, false];
     const restoredAnswers: Record<number, string> = {};
     for (const attempt of studentAttempts) {
-      const match = attempt.questionId.match(/^mission-1-question-(\d+)$/);
+      const match = attempt.questionId.match(/^mission-1-print-v2-question-(\d+)$/);
       if (!match || !attempt.correct) continue;
       const index = Number(match[1]) - 1;
       if (index < 0 || index >= restoredSolved.length) continue;
@@ -261,7 +261,7 @@ export default function Play() {
       studentId,
       data: {
         levelId: activeLevel.id,
-        questionId: activeLevel.id === 1 ? `mission-1-question-${printQuestionIndex + 1}` : `mission-${activeLevel.id}-practice`,
+        questionId: activeLevel.id === 1 ? `mission-1-print-v2-question-${printQuestionIndex + 1}` : `mission-${activeLevel.id}-practice`,
         correct: isCorrect,
         answer,
         tabSwitchDetected: tabSwitches > 0,

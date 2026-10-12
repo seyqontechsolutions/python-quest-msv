@@ -33,7 +33,7 @@ app.use(cors());
 app.use(express.json());
 
 const levels = [
-  ["Print Studio", "Printing statements", "Warm-up", 100, "Complete five separate print() output checkpoints.", ["print()", "Strings", "New lines", "Output matching"], 5],
+  ["Print Studio", "Printing statements", "Warm-up", 100, "Complete five separate print() output checkpoints.", ["print()", "Strings", "sep", "end", "Tabs"], 5],
   ["Input Lab", "Input and decisions", "Easy", 140, "Build a number scanner that accepts values, calculates results, and spots even numbers.", ["input()", "int()", "Variables", "if-else", "Modulo"], 8],
   ["Loop Trail", "Repetition", "Easy", 160, "Guide the explorer through a pattern grid using for loops, range(), and end.", ["for loop", "range()", "end=", "Nested loops", "Patterns"], 8],
   ["String Forest", "Strings", "Steady", 180, "Decode messages with indexing, slicing, and a vowel-counting scanner.", ["Indexing", "Slicing", "Negative index", "String traversal"], 8],
