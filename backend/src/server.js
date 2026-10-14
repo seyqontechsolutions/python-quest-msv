@@ -4,7 +4,7 @@ import express from "express";
 import { MongoClient } from "mongodb";
 import { createCipheriv, createDecipheriv, randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
-import { getPrintQuestions, validateChallenge, validatePrintQuestion } from "./services/challenge-engine.ts";
+import { getInputOutputQuestions, getPrintQuestions, validateChallenge, validateInputOutputQuestion, validatePrintQuestion } from "./services/challenge-engine.ts";
 import { executePython } from "./services/code-executor.ts";
 
 const app = express();
@@ -34,7 +34,7 @@ app.use(express.json());
 
 const levels = [
   ["Print Studio", "Printing statements", "Warm-up", 100, "Complete five separate print() output checkpoints.", ["print()", "Strings", "sep", "end", "Tabs"], 5],
-  ["Input Lab", "Input and decisions", "Easy", 140, "Build a number scanner that accepts values, calculates results, and spots even numbers.", ["input()", "int()", "Variables", "if-else", "Modulo"], 8],
+  ["Input Lab", "Input and output", "Easy", 140, "Complete five input/output checkpoints using numbers, arithmetic, and print().", ["input()", "int()", "Arithmetic", "Division", "Remainder"], 5],
   ["Loop Trail", "Repetition", "Easy", 160, "Guide the explorer through a pattern grid using for loops, range(), and end.", ["for loop", "range()", "end=", "Nested loops", "Patterns"], 8],
   ["String Forest", "Strings", "Steady", 180, "Decode messages with indexing, slicing, and a vowel-counting scanner.", ["Indexing", "Slicing", "Negative index", "String traversal"], 8],
   ["List Workshop", "Lists", "Steady", 200, "Organise the supply list with indexing, len(), append(), insert(), and extend().", ["List indexing", "len()", "append()", "insert()", "extend()"], 10],
@@ -144,6 +144,7 @@ app.get("/", (_req, res) => res.json({ service: "Python Quest API", status: "ok"
 app.get("/api/healthz", (_req, res) => res.json({ status: "ok" }));
 app.get("/api/game/levels", (_req, res) => res.json(levels));
 app.get("/api/game/print-challenge", (_req, res) => res.json({ questions: getPrintQuestions() }));
+app.get("/api/game/input-output-challenge", (_req, res) => res.json({ questions: getInputOutputQuestions() }));
 app.get("/api/students/roster/:grade", (req, res) => res.json([...new Set([...students.values()].filter((s) => s.grade === req.params.grade).map((s) => s.name))].sort()));
 app.post("/api/students", async (req, res) => {
   const name = String(req.body?.name || "").trim().slice(0, 80);
@@ -210,6 +211,8 @@ app.post("/api/students/:studentId/run", async (req, res) => {
   const questionId = Number(req.body?.questionId);
   res.json(levelId === 1
     ? await validatePrintQuestion(code, questionId, executePython)
+    : levelId === 2
+      ? await validateInputOutputQuestion(code, questionId, executePython)
     : await validateChallenge(levelId, code, executePython));
 });
 app.post("/api/challenges/:challengeId/submit", async (req, res) => {
@@ -219,6 +222,8 @@ app.post("/api/challenges/:challengeId/submit", async (req, res) => {
   const questionId = Number(req.body?.questionId);
   res.json(challengeId === 1
     ? await validatePrintQuestion(code, questionId, executePython)
+    : challengeId === 2
+      ? await validateInputOutputQuestion(code, questionId, executePython)
     : await validateChallenge(challengeId, code, executePython));
 });
 app.get("/api/leaderboard", (req, res) => {

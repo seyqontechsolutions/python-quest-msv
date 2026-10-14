@@ -39,8 +39,20 @@ const printQuestions = [
   { id: 5, prompt: "Print A-B-C! using a single print() statement.", output: "A-B-C!" },
 ];
 
+const inputOutputQuestions = [
+  { id: 2, prompt: "Get two input numbers and output both numbers, one result per line.", stdin: "12\n7\n", expected: "12\n7", hiddenTests: [{ stdin: "5\n8\n", expected: "5\n8" }, { stdin: "-4\n13\n", expected: "-4\n13" }, { stdin: "0\n0\n", expected: "0\n0" }, { stdin: "1000\n-21\n", expected: "1000\n-21" }], inputDescription: "Two integers, one per line." },
+  { id: 3, prompt: "Get two input numbers and print their sum, difference, multiplication, and division, one result per line.", stdin: "13\n4\n", expected: "17\n9\n52\n3.25", hiddenTests: [{ stdin: "20\n5\n", expected: "25\n15\n100\n4.0" }, { stdin: "7\n2\n", expected: "9\n5\n14\n3.5" }, { stdin: "-9\n3\n", expected: "-6\n-12\n-27\n-3.0" }, { stdin: "25\n8\n", expected: "33\n17\n200\n3.125" }], inputDescription: "Two integers, one per line. The second number is not zero." },
+  { id: 4, prompt: "Get two input numbers and print their remainder and floor division, one result per line.", stdin: "19\n4\n", expected: "3\n4", hiddenTests: [{ stdin: "20\n6\n", expected: "2\n3" }, { stdin: "17\n5\n", expected: "2\n3" }, { stdin: "29\n7\n", expected: "1\n4" }, { stdin: "100\n9\n", expected: "1\n11" }], inputDescription: "Two integers, one per line. The second number is not zero." },
+  { id: 5, prompt: "Get three input numbers and output the sum of the first two, then the sum of the last two, one result per line.", stdin: "12\n5\n9\n", expected: "17\n14", hiddenTests: [{ stdin: "2\n10\n7\n", expected: "12\n17" }, { stdin: "-4\n6\n3\n", expected: "2\n9" }, { stdin: "100\n25\n1\n", expected: "125\n26" }, { stdin: "0\n8\n9\n", expected: "8\n17" }], inputDescription: "Three integers, one per line." },
+  { id: 6, prompt: "Get three input numbers and output the difference of the first two, then the difference of the last two, one result per line.", stdin: "17\n6\n2\n", expected: "11\n4", hiddenTests: [{ stdin: "20\n8\n3\n", expected: "12\n5" }, { stdin: "4\n10\n6\n", expected: "-6\n4" }, { stdin: "-3\n-8\n-9\n", expected: "5\n1" }, { stdin: "0\n5\n12\n", expected: "-5\n-7" }], inputDescription: "Three integers, one per line." },
+];
+
 export function getPrintQuestions() {
   return printQuestions.map(({ id, prompt }) => ({ id, prompt }));
+}
+
+export function getInputOutputQuestions() {
+  return inputOutputQuestions.map(({ id, prompt }) => ({ id, prompt }));
 }
 
 export async function validatePrintQuestion(
@@ -67,6 +79,39 @@ export async function validatePrintQuestion(
     return { success: true, correct: false, output: execution.stdout, error: "", sampleInput: "No input is needed.", passedTests: 0, totalTests: 1, message: "Check the output against this question, including spaces and line breaks.", status: "wrong_answer", failedTest: { input: `Question ${String(questionId).padStart(2, "0")}`, expected, actual } };
   }
   return { success: true, correct: true, output: execution.stdout, error: "", sampleInput: "No input is needed.", passedTests: 1, totalTests: 1, message: `Question ${String(questionId).padStart(2, "0")} passed.`, status: "passed" };
+}
+
+export async function validateInputOutputQuestion(
+  code: string,
+  questionId: number,
+  execute: (code: string, stdin: string) => Promise<CodeExecutionResult>,
+): Promise<ValidationResult> {
+  const question = inputOutputQuestions.find((item) => item.id === questionId);
+  if (!question) {
+    return { success: false, correct: false, output: "", error: "Reload the lesson to get a valid input/output question.", sampleInput: "", passedTests: 0, totalTests: 1, message: "The input/output question is invalid.", status: "service_unavailable" };
+  }
+
+  const cases = [{ stdin: question.stdin, expected: question.expected, hidden: false }, ...question.hiddenTests.map((test) => ({ ...test, hidden: true }))];
+  let sampleOutput = "";
+  let passedHiddenTests = 0;
+  for (const testCase of cases) {
+    const execution = await execute(code, testCase.stdin);
+    const actual = normalizeOutput(execution.stdout.replaceAll("Enter a num: ", ""));
+    const expected = normalizeOutput(testCase.expected);
+    if (!testCase.hidden) sampleOutput = execution.stdout;
+    if (execution.serviceUnavailable) {
+      return { success: false, correct: false, output: sampleOutput, error: "Code execution service is temporarily unavailable. Please try again.", sampleInput: question.inputDescription, passedTests: passedHiddenTests, totalTests: question.hiddenTests.length, message: "The execution service could not validate this submission.", status: "service_unavailable" };
+    }
+    if (!execution.success) {
+      const status = execution.timedOut ? "timeout" : /SyntaxError|IndentationError|TabError|^  File .* line \d+/m.test(execution.stderr) ? "syntax_error" : "runtime_error";
+      return { success: false, correct: false, output: sampleOutput || execution.stdout, error: execution.timedOut ? "Your program took too long to run." : execution.stderr, sampleInput: question.inputDescription, passedTests: passedHiddenTests, totalTests: question.hiddenTests.length, message: "Fix the error and run your code again.", status, failedTest: { input: testCase.stdin, expected, actual } };
+    }
+    if (actual !== expected) {
+      return { success: true, correct: false, output: sampleOutput || execution.stdout, error: "", sampleInput: question.inputDescription, passedTests: passedHiddenTests, totalTests: question.hiddenTests.length, message: "Check the values and the order of your output.", status: "wrong_answer", failedTest: { input: testCase.stdin, expected, actual } };
+    }
+    if (testCase.hidden) passedHiddenTests += 1;
+  }
+  return { success: true, correct: true, output: sampleOutput, error: "", sampleInput: question.inputDescription, passedTests: passedHiddenTests, totalTests: question.hiddenTests.length, message: `Question ${(questionId - 1).toString().padStart(2, "0")} passed.`, status: "passed" };
 }
 
 function normalizeOutput(value: string) {

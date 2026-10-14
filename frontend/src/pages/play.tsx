@@ -14,10 +14,10 @@ const LESSONS: Record<number, { title: string; body: string; example: string; ex
     exampleoutput: 'Hello, Python!',
   },
   2: {
-    title: 'Learn: input becomes text',
-    body: 'input() reads text from the keyboard. Wrap it in int() when you need a whole number. The % operator gives the remainder, which is perfect for even and odd checks.',
-    example: 'number = int(input("Number: "))\nif number % 2 == 0:\n    print("Even")',
-    exampleoutput: '',
+    title: 'Learn: input and output with numbers',
+    body: 'input() reads text typed by the user. Use int() to convert it to a whole number, then print() the result. You can give input() a prompt such as "Enter a num: ".',
+    example: 'a = int(input("Enter a num: "))\nprint(a)',
+    exampleoutput: 'Enter a num: 12',
   },
   3: {
     title: 'Learn: repeat with a range',
@@ -71,7 +71,7 @@ const LESSONS: Record<number, { title: string; body: string; example: string; ex
 
 const MISSION_PROMPTS: Record<number, string> = {
   1: 'Use print() statements to answer the five printing questions in order. No input is needed.',
-  2: 'Read one integer and print exactly "Divisible by 3" or "Not divisible by 3".',
+  2: 'Complete each input/output question separately. Enter integers as prompted and print the requested results in order.',
   3: 'Read a start integer and a stop integer. Print every integer from start through stop, one per line.',
   4: 'Read one word. Print the word without its first and last character, then print its final character.',
   5: 'Read three words on one line. Add "added" at the end, insert "inserted" at index 1, then print the list and its length.',
@@ -110,6 +110,9 @@ export default function Play() {
   const [printQuestionIndex, setPrintQuestionIndex] = useState(0);
   const [printAnswers, setPrintAnswers] = useState<Record<number, string>>({});
   const [printSolved, setPrintSolved] = useState<boolean[]>([false, false, false, false, false]);
+  const [inputOutputQuestionIndex, setInputOutputQuestionIndex] = useState(0);
+  const [inputOutputAnswers, setInputOutputAnswers] = useState<Record<number, string>>({});
+  const [inputOutputSolved, setInputOutputSolved] = useState<boolean[]>([false, false, false, false, false]);
   const [feedback, setFeedback] = useState<'idle' | 'correct' | 'incorrect'>('idle');
   const [lessonRead, setLessonRead] = useState(false);
   const [codeOutput, setCodeOutput] = useState<RunCodeResult | null>(null);
@@ -146,6 +149,15 @@ export default function Play() {
       return response.json() as Promise<PrintChallenge>;
     },
   });
+  const { data: inputOutputChallenge, isLoading: inputOutputLoading, isError: inputOutputError } = useQuery<PrintChallenge>({
+    queryKey: ['/api/game/input-output-challenge', studentId],
+    enabled: studentId > 0 && activeId === 2,
+    queryFn: async () => {
+      const response = await fetch(apiUrl('/api/game/input-output-challenge'));
+      if (!response.ok) throw new Error('Could not load the input/output questions.');
+      return response.json() as Promise<PrintChallenge>;
+    },
+  });
   const { data: studentAttempts } = useQuery<StoredStudentAttempt[]>({
     queryKey: ['/api/students', studentId, 'attempts'],
     enabled: studentId > 0,
@@ -177,22 +189,47 @@ export default function Play() {
 
   const activeLevel = orderedLevels.find((level) => level.id === activeId) ?? orderedLevels[0];
   const currentPrintQuestion = printChallenge?.questions[printQuestionIndex];
+  const currentInputOutputQuestion = inputOutputChallenge?.questions[inputOutputQuestionIndex];
   const allPrintQuestionsSolved = printSolved.every(Boolean);
+  const allInputOutputQuestionsSolved = inputOutputSolved.every(Boolean);
+  const isCheckpointMission = activeLevel?.id === 1 || activeLevel?.id === 2;
+  const activeCheckpointQuestions = activeLevel?.id === 1 ? printChallenge?.questions : activeLevel?.id === 2 ? inputOutputChallenge?.questions : undefined;
+  const activeCheckpointIndex = activeLevel?.id === 1 ? printQuestionIndex : inputOutputQuestionIndex;
+  const activeCheckpointSolved = activeLevel?.id === 1 ? printSolved : inputOutputSolved;
+  const currentCheckpointQuestion = activeCheckpointQuestions?.[activeCheckpointIndex];
+  const checkpointLoading = activeLevel?.id === 1 ? printChallengeLoading : inputOutputLoading;
+  const checkpointError = activeLevel?.id === 1 ? printChallengeError : inputOutputError;
+  const checkpointMissionComplete = activeLevel?.id === 1 ? allPrintQuestionsSolved : activeLevel?.id === 2 ? allInputOutputQuestionsSolved : false;
 
   useEffect(() => {
     if (!studentAttempts) return;
     const restoredSolved = [false, false, false, false, false];
     const restoredAnswers: Record<number, string> = {};
+    const restoredInputOutputSolved = [false, false, false, false, false];
+    const restoredInputOutputAnswers: Record<number, string> = {};
     for (const attempt of studentAttempts) {
-      const match = attempt.questionId.match(/^mission-1-print-v2-question-(\d+)$/);
-      if (!match || !attempt.correct) continue;
-      const index = Number(match[1]) - 1;
-      if (index < 0 || index >= restoredSolved.length) continue;
-      restoredSolved[index] = true;
-      if (!(index in restoredAnswers) && attempt.answer) restoredAnswers[index] = attempt.answer;
+      if (!attempt.correct) continue;
+      const printMatch = attempt.questionId.match(/^mission-1-print-v2-question-(\d+)$/);
+      if (printMatch) {
+        const index = Number(printMatch[1]) - 1;
+        if (index >= 0 && index < restoredSolved.length) {
+          restoredSolved[index] = true;
+          if (!(index in restoredAnswers) && attempt.answer) restoredAnswers[index] = attempt.answer;
+        }
+      }
+      const inputOutputMatch = attempt.questionId.match(/^mission-2-ipop-v1-question-(\d+)$/);
+      if (inputOutputMatch) {
+        const index = Number(inputOutputMatch[1]) - 2;
+        if (index >= 0 && index < restoredInputOutputSolved.length) {
+          restoredInputOutputSolved[index] = true;
+          if (!(index in restoredInputOutputAnswers) && attempt.answer) restoredInputOutputAnswers[index] = attempt.answer;
+        }
+      }
     }
     setPrintSolved((current) => current.map((solved, index) => solved || restoredSolved[index]));
     setPrintAnswers((current) => ({ ...restoredAnswers, ...current }));
+    setInputOutputSolved((current) => current.map((solved, index) => solved || restoredInputOutputSolved[index]));
+    setInputOutputAnswers((current) => ({ ...restoredInputOutputAnswers, ...current }));
   }, [studentAttempts]);
 
   useEffect(() => {
@@ -200,6 +237,11 @@ export default function Play() {
       setAnswer(printAnswers[printQuestionIndex]);
     }
   }, [activeLevel?.id, answer, printAnswers, printQuestionIndex]);
+  useEffect(() => {
+    if (activeLevel?.id === 2 && !answer && inputOutputAnswers[inputOutputQuestionIndex]) {
+      setAnswer(inputOutputAnswers[inputOutputQuestionIndex]);
+    }
+  }, [activeLevel?.id, answer, inputOutputAnswers, inputOutputQuestionIndex]);
   const completed = activeLevel ? (student?.completedLevels ?? []).includes(activeLevel.id) : false;
   const currentLives = activeLevel ? (livesByLevel[activeLevel.id] ?? 30) : 30;
   const progressPercent = orderedLevels.length ? Math.min(100, (((student?.completedLevels?.length ?? 0) / orderedLevels.length) * 100)) : 0;
@@ -222,14 +264,26 @@ export default function Play() {
     setFeedback('idle');
   }
 
+  function chooseInputOutputQuestion(index: number) {
+    if (index < 0 || index >= (inputOutputChallenge?.questions.length ?? 0) || submitChallenge.isPending) return;
+    setInputOutputAnswers((current) => ({ ...current, [inputOutputQuestionIndex]: answer }));
+    setInputOutputQuestionIndex(index);
+    setAnswer(inputOutputAnswers[index] ?? '');
+    setCodeOutput(null);
+    setFeedback('idle');
+  }
+
   async function submitAnswer() {
     if (!activeLevel || !studentId || !answer.trim() || recordAttempt.isPending || submitChallenge.isPending) return;
     if (activeLevel.id === 1 && !printChallenge) return;
+    if (activeLevel.id === 2 && !currentInputOutputQuestion) return;
     let execution: RunCodeResult;
     try {
       const challengeData = activeLevel.id === 1
         ? { code: answer, questionId: currentPrintQuestion?.id }
-        : { code: answer };
+        : activeLevel.id === 2
+          ? { code: answer, questionId: currentInputOutputQuestion?.id }
+          : { code: answer };
       execution = await submitChallenge.mutateAsync({
         challengeId: activeLevel.id,
         data: challengeData,
@@ -252,8 +306,16 @@ export default function Play() {
     const nextPrintSolved = activeLevel.id === 1
       ? printSolved.map((solved, index) => solved || (index === printQuestionIndex && isCorrect))
       : printSolved;
-    const missionPassed = activeLevel.id === 1 ? nextPrintSolved.every(Boolean) : isCorrect;
+    const nextInputOutputSolved = activeLevel.id === 2
+      ? inputOutputSolved.map((solved, index) => solved || (index === inputOutputQuestionIndex && isCorrect))
+      : inputOutputSolved;
+    const missionPassed = activeLevel.id === 1
+      ? nextPrintSolved.every(Boolean)
+      : activeLevel.id === 2
+        ? nextInputOutputSolved.every(Boolean)
+        : isCorrect;
     if (activeLevel.id === 1 && isCorrect) setPrintSolved(nextPrintSolved);
+    if (activeLevel.id === 2 && isCorrect) setInputOutputSolved(nextInputOutputSolved);
     const livesRemaining = isCorrect ? currentLives : Math.max(0, currentLives - 1);
     setFeedback(isCorrect ? 'correct' : 'incorrect');
     setLivesByLevel((current) => ({ ...current, [activeLevel.id]: livesRemaining }));
@@ -261,7 +323,11 @@ export default function Play() {
       studentId,
       data: {
         levelId: activeLevel.id,
-        questionId: activeLevel.id === 1 ? `mission-1-print-v2-question-${printQuestionIndex + 1}` : `mission-${activeLevel.id}-practice`,
+        questionId: activeLevel.id === 1
+          ? `mission-1-print-v2-question-${printQuestionIndex + 1}`
+          : activeLevel.id === 2
+            ? `mission-2-ipop-v1-question-${currentInputOutputQuestion?.id}`
+            : `mission-${activeLevel.id}-practice`,
         correct: isCorrect,
         answer,
         tabSwitchDetected: tabSwitches > 0,
@@ -456,26 +522,26 @@ export default function Play() {
                           <span className="font-mono-ui text-xs text-secondary">01</span>
                           <div>
                             <p className="font-mono-ui text-[10px] uppercase tracking-[.18em] text-primary">Your changed challenge</p>
-                            {activeLevel.id === 1 ? (
+                            {isCheckpointMission ? (
                               <div className="mt-3 max-w-xl rounded-lg border border-background/15 bg-background/5 p-3 text-sm leading-relaxed text-background/90">
-                                <p className="mb-3">Complete each print question separately. No input is needed; print only the requested output.</p>
-                                {printChallengeLoading && <p className="text-background/60">Loading the five printing questions…</p>}
-                                {printChallengeError && <p className="text-secondary">Could not load the questions. Refresh the page to try again.</p>}
-                                {printChallenge && <div className="mb-3 flex flex-wrap gap-2" aria-label="Printing question progress">
-                                  {printChallenge.questions.map((question, index) => (
-                                    <button key={question.id} type="button" onClick={() => choosePrintQuestion(index)} disabled={submitChallenge.isPending} aria-current={printQuestionIndex === index ? 'step' : undefined} aria-label={`Question ${index + 1}${printSolved[index] ? ', completed' : ''}`} className={`grid h-9 min-w-10 place-items-center rounded-lg border px-2 font-mono-ui text-xs font-bold transition disabled:cursor-wait ${printSolved[index] ? 'border-emerald-400 bg-emerald-500 text-white' : printQuestionIndex === index ? 'border-primary bg-primary text-foreground' : 'border-background/25 bg-background/10 text-background/70 hover:border-primary'}`}>
-                                      {String(index + 1).padStart(2, '0')}{printSolved[index] && <Check size={12} className="ml-1 inline" />}
+                                <p className="mb-3">{activeLevel.id === 1 ? 'Complete each print question separately. No input is needed; print only the requested output.' : 'Complete each input/output question separately. Enter one integer per line; the sample input prompts are accepted.'}</p>
+                                {checkpointLoading && <p className="text-background/60">Loading the questions…</p>}
+                                {checkpointError && <p className="text-secondary">Could not load the questions. Refresh the page to try again.</p>}
+                                {activeCheckpointQuestions && <div className="mb-3 flex flex-wrap gap-2" aria-label="Question progress">
+                                  {activeCheckpointQuestions.map((question, index) => (
+                                    <button key={question.id} type="button" onClick={() => activeLevel.id === 1 ? choosePrintQuestion(index) : chooseInputOutputQuestion(index)} disabled={submitChallenge.isPending} aria-current={activeCheckpointIndex === index ? 'step' : undefined} aria-label={`Question ${index + 1}${activeCheckpointSolved[index] ? ', completed' : ''}`} className={`grid h-9 min-w-10 place-items-center rounded-lg border px-2 font-mono-ui text-xs font-bold transition disabled:cursor-wait ${activeCheckpointSolved[index] ? 'border-emerald-400 bg-emerald-500 text-white' : activeCheckpointIndex === index ? 'border-primary bg-primary text-foreground' : 'border-background/25 bg-background/10 text-background/70 hover:border-primary'}`}>
+                                      {String(index + 1).padStart(2, '0')}{activeCheckpointSolved[index] && <Check size={12} className="ml-1 inline" />}
                                     </button>
                                   ))}
                                 </div>}
-                                {currentPrintQuestion && <p className="whitespace-pre-wrap leading-relaxed"><span className="mr-2 font-mono-ui font-bold text-primary">{String(printQuestionIndex + 1).padStart(2, '0')}.</span>{currentPrintQuestion.prompt}</p>}
+                                {currentCheckpointQuestion && <p className="whitespace-pre-wrap leading-relaxed"><span className="mr-2 font-mono-ui font-bold text-primary">{String(activeCheckpointIndex + 1).padStart(2, '0')}.</span>{currentCheckpointQuestion.prompt}</p>}
                               </div>
                             ) : <p className="mt-2 max-w-xl font-mono-ui text-sm leading-relaxed text-background/90">{promptForLevel(activeLevel.id)}</p>}
                           </div>
                         </div>
                         <textarea
                           value={answer}
-                          onChange={(event) => { setAnswer(event.target.value); if (activeLevel.id === 1) setPrintAnswers((current) => ({ ...current, [printQuestionIndex]: event.target.value })); setCodeOutput(null); if (feedback !== 'idle') setFeedback('idle'); }}
+                          onChange={(event) => { setAnswer(event.target.value); if (activeLevel.id === 1) setPrintAnswers((current) => ({ ...current, [printQuestionIndex]: event.target.value })); if (activeLevel.id === 2) setInputOutputAnswers((current) => ({ ...current, [inputOutputQuestionIndex]: event.target.value })); setCodeOutput(null); if (feedback !== 'idle') setFeedback('idle'); }}
                           onKeyDown={(event) => {
                             if (event.key !== 'Tab') return;
                             event.preventDefault();
@@ -485,6 +551,7 @@ export default function Play() {
                             const indentation = '    ';
                             setAnswer((current) => current.slice(0, start) + indentation + current.slice(end));
                             if (activeLevel.id === 1) setPrintAnswers((current) => ({ ...current, [printQuestionIndex]: answer.slice(0, start) + indentation + answer.slice(end) }));
+                            if (activeLevel.id === 2) setInputOutputAnswers((current) => ({ ...current, [inputOutputQuestionIndex]: answer.slice(0, start) + indentation + answer.slice(end) }));
                             setCodeOutput(null);
                             if (feedback !== 'idle') setFeedback('idle');
                             window.requestAnimationFrame(() => {
@@ -522,12 +589,12 @@ export default function Play() {
                         )}
                         <div className="mt-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
                           <div className="flex flex-wrap items-center justify-end gap-2">
-                            {activeLevel.id === 1 && <>
-                              <button type="button" onClick={() => choosePrintQuestion(printQuestionIndex - 1)} disabled={printQuestionIndex === 0 || submitChallenge.isPending} className="flex items-center gap-1 rounded-xl border border-background/25 px-3 py-3 text-sm font-semibold text-background/80 transition hover:border-primary disabled:cursor-not-allowed disabled:opacity-35" aria-label="Previous question"><ArrowLeft size={15} /> Previous</button>
-                              <button type="button" onClick={() => choosePrintQuestion(printQuestionIndex + 1)} disabled={printQuestionIndex >= (printChallenge?.questions.length ?? 0) - 1 || submitChallenge.isPending} className="flex items-center gap-1 rounded-xl border border-background/25 px-3 py-3 text-sm font-semibold text-background/80 transition hover:border-primary disabled:cursor-not-allowed disabled:opacity-35" aria-label="Next question">Next <ArrowRight size={15} /></button>
+                            {isCheckpointMission && <>
+                              <button type="button" onClick={() => activeLevel.id === 1 ? choosePrintQuestion(activeCheckpointIndex - 1) : chooseInputOutputQuestion(activeCheckpointIndex - 1)} disabled={activeCheckpointIndex === 0 || submitChallenge.isPending} className="flex items-center gap-1 rounded-xl border border-background/25 px-3 py-3 text-sm font-semibold text-background/80 transition hover:border-primary disabled:cursor-not-allowed disabled:opacity-35" aria-label="Previous question"><ArrowLeft size={15} /> Previous</button>
+                              <button type="button" onClick={() => activeLevel.id === 1 ? choosePrintQuestion(activeCheckpointIndex + 1) : chooseInputOutputQuestion(activeCheckpointIndex + 1)} disabled={activeCheckpointIndex >= (activeCheckpointQuestions?.length ?? 0) - 1 || submitChallenge.isPending} className="flex items-center gap-1 rounded-xl border border-background/25 px-3 py-3 text-sm font-semibold text-background/80 transition hover:border-primary disabled:cursor-not-allowed disabled:opacity-35" aria-label="Next question">Next <ArrowRight size={15} /></button>
                             </>}
-                            <button type="button" onClick={submitAnswer} disabled={!answer.trim() || (activeLevel.id === 1 && !currentPrintQuestion) || recordAttempt.isPending || saveProgress.isPending || submitChallenge.isPending} data-testid="button-submit-answer" className="flex items-center justify-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-bold text-foreground transition hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-45">
-                               {recordAttempt.isPending || submitChallenge.isPending ? 'Running...' : activeLevel.id === 1 && printSolved[printQuestionIndex] ? 'Run again' : completed ? 'Run again' : 'Run and check'} <PlayIcon size={15} fill="currentColor" />
+                            <button type="button" onClick={submitAnswer} disabled={!answer.trim() || (isCheckpointMission && !currentCheckpointQuestion) || recordAttempt.isPending || saveProgress.isPending || submitChallenge.isPending} data-testid="button-submit-answer" className="flex items-center justify-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-bold text-foreground transition hover:bg-secondary disabled:cursor-not-allowed disabled:opacity-45">
+                               {recordAttempt.isPending || submitChallenge.isPending ? 'Running...' : isCheckpointMission && activeCheckpointSolved[activeCheckpointIndex] ? 'Run again' : completed ? 'Run again' : 'Run and check'} <PlayIcon size={15} fill="currentColor" />
                             </button>
                           </div>
                         </div>
@@ -540,7 +607,7 @@ export default function Play() {
                   <div className="rounded-2xl border-2 border-foreground bg-card p-5">
                     <div className="flex items-center justify-between"><span className="font-mono-ui text-[10px] uppercase tracking-[.18em] text-muted-foreground">Objective feedback</span><CircleAlert size={15} className="text-secondary" /></div>
                     {feedback === 'idle' && <div className="mt-6"><p className="text-lg font-bold">Your move.</p><p className="mt-2 text-sm leading-relaxed text-muted-foreground">Use the console to make the idea visible. Clear code beats clever code.</p></div>}
-                    {feedback === 'correct' && <div className="mt-6 animate-rise"><div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-primary"><Check size={21} strokeWidth={3} /></div><p className="text-lg font-bold">{activeLevel.id === 1 && !allPrintQuestionsSolved ? 'Question passed.' : 'Mission objective met.'}</p><p className="mt-2 text-sm leading-relaxed text-muted-foreground">{activeLevel.id === 1 && !allPrintQuestionsSolved ? 'This question is marked green. Continue through the remaining questions.' : 'That answer has the right shape. XP saved to your run.'}</p></div>}
+                    {feedback === 'correct' && <div className="mt-6 animate-rise"><div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-primary"><Check size={21} strokeWidth={3} /></div><p className="text-lg font-bold">{isCheckpointMission && !checkpointMissionComplete ? 'Question passed.' : 'Mission objective met.'}</p><p className="mt-2 text-sm leading-relaxed text-muted-foreground">{isCheckpointMission && !checkpointMissionComplete ? 'This question is marked green. Continue through the remaining questions.' : 'That answer has the right shape. XP saved to your run.'}</p></div>}
                     {feedback === 'incorrect' && <div className="mt-6 animate-rise"><div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-secondary"><X size={21} strokeWidth={3} /></div><p className="text-lg font-bold">Not quite there yet.</p><p className="mt-2 text-sm leading-relaxed text-muted-foreground">Read the objective once more, then make one small change. You still have room to experiment.</p></div>}
                   </div>
                   <div className="rounded-2xl border-2 border-foreground/15 bg-primary/35 p-5">
@@ -556,8 +623,8 @@ export default function Play() {
               </div>
               {tabSwitches > 0 && <div className="mt-6 flex items-start gap-3 rounded-2xl border-2 border-secondary bg-secondary/15 p-4 text-sm" data-testid="status-tab-switch-warning"><CircleAlert className="mt-0.5 shrink-0" size={17} /><p><strong>Focus check:</strong> we noticed {tabSwitches} tab switch{tabSwitches === 1 ? '' : 'es'} while this mission was open. Your teacher can see this checkpoint.</p></div>}
               <div className="mt-7 flex flex-wrap items-center justify-between gap-3">
-                <button type="button" onClick={() => { setAnswer(''); if (activeLevel.id === 1) setPrintAnswers((current) => ({ ...current, [printQuestionIndex]: '' })); setFeedback('idle'); }} className="flex items-center gap-2 text-sm font-semibold text-muted-foreground transition hover:text-foreground" data-testid="button-reset-code"><RotateCcw size={15} /> Clear code</button>
-                {((activeLevel.id === 1 && allPrintQuestionsSolved) || (activeLevel.id !== 1 && feedback === 'correct')) && <button type="button" onClick={() => { const next = orderedLevels[orderedLevels.findIndex((level) => level.id === activeLevel.id) + 1]; if (next) chooseLevel(next.id); else setShowMap(true); }} className="flex items-center gap-2 rounded-xl border-2 border-foreground bg-foreground px-4 py-2.5 text-sm font-bold text-background transition hover:bg-secondary hover:text-foreground" data-testid="button-next-mission">{orderedLevels.findIndex((level) => level.id === activeLevel.id) === orderedLevels.length - 1 ? 'Back to map' : activeLevel.id === 1 ? 'Next lesson' : 'Next mission'} <ArrowRight size={16} /></button>}
+                <button type="button" onClick={() => { setAnswer(''); if (activeLevel.id === 1) setPrintAnswers((current) => ({ ...current, [printQuestionIndex]: '' })); if (activeLevel.id === 2) setInputOutputAnswers((current) => ({ ...current, [inputOutputQuestionIndex]: '' })); setFeedback('idle'); }} className="flex items-center gap-2 text-sm font-semibold text-muted-foreground transition hover:text-foreground" data-testid="button-reset-code"><RotateCcw size={15} /> Clear code</button>
+                {((activeLevel.id === 1 && allPrintQuestionsSolved) || (activeLevel.id === 2 && allInputOutputQuestionsSolved) || (activeLevel.id > 2 && feedback === 'correct')) && <button type="button" onClick={() => { const next = orderedLevels[orderedLevels.findIndex((level) => level.id === activeLevel.id) + 1]; if (next) chooseLevel(next.id); else setShowMap(true); }} className="flex items-center gap-2 rounded-xl border-2 border-foreground bg-foreground px-4 py-2.5 text-sm font-bold text-background transition hover:bg-secondary hover:text-foreground" data-testid="button-next-mission">{orderedLevels.findIndex((level) => level.id === activeLevel.id) === orderedLevels.length - 1 ? 'Back to map' : activeLevel.id <= 2 ? 'Next lesson' : 'Next mission'} <ArrowRight size={16} /></button>}
               </div>
             </div>
           )}
